@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const api = axios.create({
-  baseURL: "http://localhost:3000/", // Backend adresimiz
+  baseURL: "https://kutuphane-backend-erwj.onrender.com", // Backend adresimiz
 });
 
 export function setToken(token: string) {
