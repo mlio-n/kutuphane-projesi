@@ -116,12 +116,13 @@ export default function BookList() {
   );
   const hasLimitReached = !!myActiveLoan;
 
-  // Filter books by search term
+  // Filter books by search term (DÜZELTİLEN KISIM)
   const filteredBooks = books.filter((book) => {
     const searchLower = searchTerm.toLowerCase();
     return (
       book.title.toLowerCase().includes(searchLower) || 
-      book.author.toLowerCase().includes(searchLower)
+      book.author.toLowerCase().includes(searchLower) ||
+      (book.category?.name?.toLowerCase().includes(searchLower) ?? false)
     );
   });
 
@@ -172,7 +173,7 @@ export default function BookList() {
         </div>
         <input 
           type="text" 
-          placeholder="Kitap veya yazar ara..." 
+          placeholder="Kitap, yazar veya kategori ara..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
@@ -225,11 +226,11 @@ export default function BookList() {
                     <td className="px-6 py-4 font-bold text-gray-800">{book.title}</td>
                     <td className="px-6 py-4 text-gray-600">{book.author}</td>
                     <td className="px-6 py-4">
-                       {book.category ? (
-                         <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-md text-xs font-medium border border-indigo-100">
-                           {book.category.name}
-                         </span>
-                       ) : <span className="text-gray-400 text-xs">-</span>}
+                        {book.category ? (
+                          <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-md text-xs font-medium border border-indigo-100">
+                            {book.category.name}
+                          </span>
+                        ) : <span className="text-gray-400 text-xs">-</span>}
                     </td>
 
                     <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
