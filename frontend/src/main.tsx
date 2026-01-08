@@ -46,7 +46,6 @@ const router = createBrowserRouter([
     ],
   },
 
-  // Guest Routes (Only accessible if NOT logged in)
   {
     element: <GuestRoute />,
     children: [

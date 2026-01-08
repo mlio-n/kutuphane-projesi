@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Get, Delete, Param } from '@nestjs/common'; // Get, Delete, Param eklendi
+import { Body, Controller, Post, Get, Delete, Param } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dtos/register.dto';
 import { LoginDto } from './dtos/login.dto';
@@ -17,15 +17,12 @@ export class AuthController {
     return this.authService.login(body);
   }
 
-  // 👇 YENİ EKLENENLER 👇
 
-  // Tüm kullanıcıları listeleme
   @Get('/users')
   getUsers() {
     return this.authService.getAllUsers();
   }
 
-  // Kullanıcı silme (ID'ye göre)
   @Delete('/users/:id')
   deleteUser(@Param('id') id: string) {
     return this.authService.deleteUser(parseInt(id));

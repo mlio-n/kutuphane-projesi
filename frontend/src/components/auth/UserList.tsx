@@ -2,8 +2,8 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { HiTrash, HiUserGroup, HiBadgeCheck, HiAcademicCap } from "react-icons/hi";
 import { api } from "../../helper/api";
-import { useLoggedInUsersContext } from "./LoggedInUserContext"; // 👈 Context'i çağırdık
-import { useNavigate } from "react-router-dom"; // 👈 Yönlendirme için
+import { useLoggedInUsersContext } from "./LoggedInUserContext";
+import { useNavigate } from "react-router-dom";
 
 type User = {
   id: number;
@@ -16,21 +16,18 @@ export default function UserList() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // 👇 HOCANIN İSTEDİĞİ YÖNTEM: Yetki Kontrolü İçin Gerekli Olanlar
   const { loggedInUser } = useLoggedInUsersContext();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // 1. Önce Güvenlik Kontrolü: Kullanıcı Admin değilse at!
     if (loggedInUser?.role !== "admin") {
       toast.error("Bu sayfaya giriş yetkiniz yok! ⛔");
-      navigate("/"); // Ana sayfaya fırlat
-      return; // Aşağıdaki kodları hiç çalıştırma
+      navigate("/");
+      return;
     }
 
-    // 2. Yetkisi varsa listeyi çek
     fetchUsers();
-  }, [loggedInUser, navigate]); // loggedInUser değişirse tekrar kontrol et
+  }, [loggedInUser, navigate]);
 
   const fetchUsers = async () => {
     try {
@@ -57,10 +54,7 @@ export default function UserList() {
 
   return (
     <div className="max-w-5xl mx-auto px-8 pt-6 pb-12 animate-fade-in">
-      {/* ... KODUN GERİ KALANI AYNI KALSIN ... */}
-      {/* (Başlık ve Tablo kısımlarını tekrar kopyalamana gerek yok, yukarısı önemli) */}
       
-      {/* BAŞLIK */}
       <div className="flex items-center justify-between mb-8">
         <div>
            <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Kullanıcı Yönetimi</h1>
@@ -71,7 +65,6 @@ export default function UserList() {
         </div>
       </div>
 
-      {/* LİSTE */}
       <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>

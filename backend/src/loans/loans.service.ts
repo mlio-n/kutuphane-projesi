@@ -23,12 +23,10 @@ export class LoansService {
     });
   }
 
-  // Create a new loan record
   async borrowBook(bookId: number, user: User) {
     const book = await this.bookRepo.findOne({ where: { id: bookId } });
     if (!book) throw new NotFoundException('Kitap bulunamadı.');
 
-    // Check if the book is currently borrowed by someone else
     const activeLoan = await this.loanRepo.findOne({
       where: { book: { id: bookId }, returnDate: IsNull() },
     });
@@ -37,7 +35,6 @@ export class LoansService {
       throw new BadRequestException('Bu kitap şu an başkasında.');
     }
 
-    // Limit check: User can only have 1 active loan
     const userActiveLoansCount = await this.loanRepo.count({
       where: { 
         user: { id: user.id }, 
@@ -57,7 +54,6 @@ export class LoansService {
     return this.loanRepo.save(newLoan);
   }
 
-  // Mark a loan as returned
   async returnBook(bookId: number) {
     const activeLoan = await this.loanRepo.findOne({
       where: { book: { id: bookId }, returnDate: IsNull() },

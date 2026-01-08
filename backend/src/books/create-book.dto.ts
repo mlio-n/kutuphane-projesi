@@ -16,5 +16,5 @@ export class CreateBookDto {
   pageCount: number;
 
   @IsNumber()
-  categoryId: number; // Frontend'den tüm kategori objesini değil, sadece ID'sini isteyeceğiz
+  categoryId: number;
 }

@@ -6,7 +6,7 @@ export type LoggedInUser = {
   id: number;
   username: string;
   role: string;
-  access_token: string; // Token ismi backend ile uyumlu olmalı
+  access_token: string;
 };
 
 export type LoggedInUserContextType = {
@@ -20,7 +20,6 @@ export const LoggedInUserContextProvider = ({ children }: { children: ReactNode 
   const cookies = new Cookies();
   let initialUser: LoggedInUser | null = null;
 
-  // Sayfa yenilendiğinde cookie'den kullanıcıyı geri getir
   const storedUser = cookies.get("loggedInUser");
   if (storedUser) {
     initialUser = storedUser;

@@ -23,7 +23,6 @@ export default function BookList() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Form states
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
   const [categoryId, setCategoryId] = useState<number | "">("");
@@ -110,13 +109,11 @@ export default function BookList() {
     }
   };
 
-  // Check if current user has an active loan (Limit: 1)
   const myActiveLoan = books.find(b => 
     b.loans?.some(loan => loan.returnDate === null && loan.user.username === loggedInUser?.username)
   );
   const hasLimitReached = !!myActiveLoan;
 
-  // Filter books by search term (DÜZELTİLEN KISIM)
   const filteredBooks = books.filter((book) => {
     const searchLower = searchTerm.toLowerCase();
     return (

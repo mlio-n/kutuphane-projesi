@@ -16,12 +16,10 @@ export class StatsService {
   ) {}
 
   async getDashboardStats() {
-    // Veritabanındaki satırları sayıyoruz (Count)
     const totalBooks = await this.bookRepo.count();
     const totalUsers = await this.userRepo.count();
     const totalCategories = await this.categoryRepo.count();
     
-    // Aktif ödünçler (İade tarihi boş olanlar)
     const activeLoans = await this.loanRepo.count({
       where: { returnDate: IsNull() }
     });

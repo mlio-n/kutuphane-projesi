@@ -43,17 +43,14 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 relative overflow-hidden">
       
-      {/* Arka Plan Süslemeleri (Blur Efektleri) */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
           <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
           <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-blue-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
           <div className="absolute bottom-[-20%] left-[20%] w-96 h-96 bg-pink-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
       </div>
 
-      {/* Ana Kart */}
       <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md z-10 border border-gray-100 relative">
         
-        {/* Logo & Başlık */}
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-purple-600 shadow-lg mb-6 transform rotate-3">
              <HiBookOpen className="w-8 h-8 text-white" />
@@ -62,10 +59,8 @@ export default function Login() {
           <p className="text-gray-500 mt-2 text-sm">Kütüphane yönetim paneline erişmek için giriş yapın.</p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleLogin} className="space-y-6">
           
-          {/* Kullanıcı Adı Input */}
           <div className="relative group">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
               <HiUser className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
@@ -80,7 +75,6 @@ export default function Login() {
             />
           </div>
 
-          {/* Şifre Input */}
           <div className="relative group">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
               <HiLockClosed className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
@@ -95,7 +89,6 @@ export default function Login() {
             />
           </div>
 
-          {/* Giriş Butonu */}
           <button
             type="submit"
             disabled={loading}
@@ -111,7 +104,6 @@ export default function Login() {
             )}
           </button>
 
-          {/* Alt Link */}
           <div className="text-center mt-6">
             <p className="text-sm text-gray-600">
               Henüz bir hesabın yok mu?{" "}

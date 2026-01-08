@@ -63,14 +63,12 @@ export default function DashboardLayout() {
         <div className="p-4 border-t border-gray-100">
           <div className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 hover:border-gray-200 transition-colors">
             
-            {/* Avatar Kısmı: name yerine username kullanıldı */}
             <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${avatarGradient}`}>
               {loggedInUser?.username?.charAt(0).toUpperCase() || <HiUser />}
             </div>
 
             <div className="flex-1 min-w-0">
                <p className="text-sm font-bold text-gray-900 truncate">
-                 {/* İsim Kısmı: name yerine username kullanıldı */}
                  {loggedInUser?.username || "Kullanici"} 
                </p>
                <div className="flex items-center gap-1.5 mt-0.5">

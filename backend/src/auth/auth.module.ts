@@ -10,8 +10,8 @@ import { User } from './user.entity';
     TypeOrmModule.forFeature([User]),
     JwtModule.register({
       global: true,
-      secret: 'GIZLI_KELIME', // Gerçek projede env dosyasında olur
-      signOptions: { expiresIn: '1h' }, // Giriş 1 saat geçerli kalsın
+      secret: 'GIZLI_KELIME',
+      signOptions: { expiresIn: '1h' },
     }),
   ],
   controllers: [AuthController],
