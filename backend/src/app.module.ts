@@ -12,13 +12,13 @@ import { StatsModule } from './stats/stats.module';
   imports: [
     TypeOrmModule.forRoot({
       type: 'postgres',
-      host: 'dpg-d5c3q6khg0os73e1vko0-a.frankfurt-postgres.render.com',
+      host: 'dpg-d5c3q6khg0os73e1vko0-a',
       port: 5432,
-      username: 'kutupane_db_ilml_user',
+      username: 'kutuphane_db_ilml_user',
       password: 'NPi8RSsC3OZY8PG29hJXY4ZQBwquirYv',
-      database: 'kutupane_db_ilml',
+      database: 'kutuphane_db_ilml',
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
-      ssl: { rejectUnauthorized: false },
+      ssl: false,
       synchronize: true,
     }),
     AuthModule,
