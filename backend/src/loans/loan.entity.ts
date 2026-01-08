@@ -7,7 +7,7 @@ export class Loan {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => Book, (book) => book.loans, { eager: true })
+  @ManyToOne(() => Book, (book) => book.loans, { eager: true, onDelete: 'CASCADE' })
   book: Book;
 
   @ManyToOne(() => User, (user) => user.loans, { eager: true })
