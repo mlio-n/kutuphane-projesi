@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
-import { HiTrash, HiPlus, HiBookOpen, HiOutlineBookOpen, HiCheck, HiX, HiReply, HiBan, HiSearch } from "react-icons/hi";
+import { HiTrash, HiPlus, HiBookOpen, HiOutlineBookOpen, HiCheck, HiX, HiReply, HiBan, HiSearch, HiStar, HiOutlineStar } from "react-icons/hi";
 import { api } from "../../helper/api";
 import { useLoggedInUsersContext } from "../auth/LoggedInUserContext";
 
@@ -20,6 +20,7 @@ type Category = {
 export default function BookList() {
   const [books, setBooks] = useState<Book[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [favorites, setFavorites] = useState<number[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -33,7 +34,11 @@ export default function BookList() {
   useEffect(() => {
     fetchBooks();
     fetchCategories();
-  }, []);
+    
+    if (loggedInUser) {
+      fetchFavorites();
+    }
+  }, [loggedInUser]);
 
   const fetchBooks = async () => {
     try {
@@ -50,6 +55,13 @@ export default function BookList() {
     try {
       const res = await api.get("categories");
       setCategories(res.data);
+    } catch (error) {}
+  };
+
+  const fetchFavorites = async () => {
+    try {
+      const res = await api.get(`auth/favorites/${loggedInUser?.id}`);
+      setFavorites(res.data.map((b: any) => b.id));
     } catch (error) {}
   };
 
@@ -109,6 +121,28 @@ export default function BookList() {
     }
   };
 
+  const handleAddFavorite = async (bookId: number) => {
+    try {
+      await api.post(`auth/favorites/${bookId}`, { userId: loggedInUser?.id });
+      setFavorites([...favorites, bookId]);
+      toast.success("Favorilere eklendi! ⭐");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Hata oluştu");
+    }
+  };
+
+  const handleRemoveFavorite = async (bookId: number) => {
+    try {
+      await api.delete(`auth/favorites/${bookId}`, { 
+        data: { userId: loggedInUser?.id } 
+      });
+      setFavorites(favorites.filter(id => id !== bookId));
+      toast.success("Favorilerden çıkarıldı");
+    } catch (error) {
+      toast.error("Hata oluştu");
+    }
+  };
+
   const myActiveLoan = books.find(b => 
     b.loans?.some(loan => loan.returnDate === null && loan.user.username === loggedInUser?.username)
   );
@@ -163,7 +197,6 @@ export default function BookList() {
         </div>
       )}
 
-      {/* Search Bar */}
       <div className="mb-6 relative">
         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
           <HiSearch className="text-gray-400 w-5 h-5" />
@@ -200,6 +233,7 @@ export default function BookList() {
                 const activeLoan = book.loans?.find(loan => loan.returnDate === null);
                 const isAvailable = !activeLoan;
                 const isMyBook = activeLoan?.user?.username === loggedInUser?.username;
+                const isFavorite = favorites.includes(book.id);
 
                 return (
                   <tr key={book.id} className="group hover:bg-gray-50 transition-colors">
@@ -232,6 +266,24 @@ export default function BookList() {
 
                     <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
                       
+                      {isFavorite ? (
+                        <button 
+                          onClick={() => handleRemoveFavorite(book.id)}
+                          className="px-3 py-2 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-lg hover:bg-yellow-200 transition-colors flex items-center gap-1"
+                          title="Favorilerden Çıkar"
+                        >
+                          <HiStar className="w-4 h-4" /> Favorilerimde
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => handleAddFavorite(book.id)}
+                          className="px-3 py-2 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-1"
+                          title="Favorilere Ekle"
+                        >
+                          <HiOutlineStar className="w-4 h-4" /> Favorile
+                        </button>
+                      )}
+
                       {isAvailable && (
                         hasLimitReached ? (
                             <button disabled className="px-4 py-2 bg-gray-100 text-gray-400 text-xs font-bold rounded-lg cursor-not-allowed flex items-center gap-1">

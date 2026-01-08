@@ -1,0 +1,2098 @@
+﻿================= FILE: login.dto.ts =================
+
+import { IsString } from 'class-validator';
+
+export class LoginDto {
+  @IsString()
+  username: string;
+
+  @IsString()
+  password: string;
+}
+================= FILE: register.dto.ts =================
+
+import { IsString, IsNotEmpty } from 'class-validator';
+
+export class RegisterDto {
+  @IsString()
+  @IsNotEmpty()
+  username: string;
+
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  role: string;
+}
+================= FILE: auth.controller.ts =================
+
+import { Body, Controller, Post, Get, Delete, Param } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { RegisterDto } from './dtos/register.dto';
+import { LoginDto } from './dtos/login.dto';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private authService: AuthService) {}
+
+  @Post('/register')
+  register(@Body() body: RegisterDto) {
+    return this.authService.register(body);
+  }
+
+  @Post('/login')
+  login(@Body() body: LoginDto) {
+    return this.authService.login(body);
+  }
+
+  @Get('/users')
+  getUsers() {
+    return this.authService.getAllUsers();
+  }
+
+  @Delete('/users/:id')
+  deleteUser(@Param('id') id: string) {
+    return this.authService.deleteUser(parseInt(id));
+  }
+
+  @Post('/favorites/:bookId')
+  addToFavorites(
+    @Param('bookId') bookId: string, 
+    @Body() body: { userId: number }
+  ) {
+    return this.authService.addFavorite(body.userId, parseInt(bookId));
+  }
+
+  @Delete('/favorites/:bookId')
+  removeFromFavorites(
+    @Param('bookId') bookId: string, 
+    @Body() body: { userId: number }
+  ) {
+    return this.authService.removeFavorite(body.userId, parseInt(bookId));
+  }
+
+  @Get('/favorites/:userId')
+  getFavorites(@Param('userId') userId: string) {
+    return this.authService.getFavorites(parseInt(userId));
+  }
+}
+================= FILE: auth.module.ts =================
+
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { User } from './user.entity';
+import { Book } from '../books/book.entity';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([User, Book]),
+    JwtModule.register({
+      global: true,
+      secret: 'GIZLI_KELIME',
+      signOptions: { expiresIn: '1h' },
+    }),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService],
+})
+export class AuthModule {}
+================= FILE: auth.service.ts =================
+
+import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { JwtService } from '@nestjs/jwt';
+import { User } from './user.entity';
+import { Book } from '../books/book.entity';
+import { RegisterDto } from './dtos/register.dto';
+import { LoginDto } from './dtos/login.dto';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(Book) private bookRepo: Repository<Book>,
+    private jwtService: JwtService,
+  ) {}
+
+  async register(registerDto: RegisterDto) {
+    const { username, password, name, role } = registerDto;
+
+    const existingUser = await this.userRepo.findOne({ where: { username } });
+    if (existingUser) {
+      throw new BadRequestException('Bu kullanÄ±cÄ± adÄ± zaten kullanÄ±lÄ±yor.');
+    }
+
+    const newUser = this.userRepo.create({
+      name,
+      username,
+      password: password,
+      role: role || 'student',
+    });
+
+    const savedUser = await this.userRepo.save(newUser);
+
+    return this.generateToken(savedUser);
+  }
+
+  async login(loginDto: LoginDto) {
+    const { username, password } = loginDto;
+
+    const user = await this.userRepo.findOne({ where: { username } });
+    if (!user) {
+      throw new UnauthorizedException('KullanÄ±cÄ± adÄ± veya ÅŸifre hatalÄ±.');
+    }
+
+    if (user.password !== password) {
+      throw new UnauthorizedException('KullanÄ±cÄ± adÄ± veya ÅŸifre hatalÄ±.');
+    }
+
+    return this.generateToken(user);
+  }
+
+  private async generateToken(user: User) {
+    const payload = { sub: user.id, username: user.username, role: user.role };
+    
+    return {
+      access_token: this.jwtService.sign(payload),
+      user: {
+        id: user.id,
+        name: user.name,
+        username: user.username,
+        role: user.role,
+      },
+    };
+  }
+
+  async getAllUsers() {
+    return this.userRepo.find();
+  }
+
+  async deleteUser(id: number) {
+    return this.userRepo.delete(id);
+  }
+
+  async addFavorite(userId: number, bookId: number) {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['favoriteBooks']
+    });
+    
+    const book = await this.bookRepo.findOne({ where: { id: bookId } });
+    
+    if (!user || !book) {
+      throw new NotFoundException('KullanÄ±cÄ± veya kitap bulunamadÄ±');
+    }
+
+    if (user.favoriteBooks.some(b => b.id === bookId)) {
+      throw new BadRequestException('Bu kitap zaten favorilerinizde');
+    }
+
+    user.favoriteBooks.push(book);
+    await this.userRepo.save(user);
+    
+    return { message: 'Favorilere eklendi' };
+  }
+
+  async removeFavorite(userId: number, bookId: number) {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['favoriteBooks']
+    });
+
+    if (!user) throw new NotFoundException('KullanÄ±cÄ± bulunamadÄ±');
+
+    user.favoriteBooks = user.favoriteBooks.filter(b => b.id !== bookId);
+    await this.userRepo.save(user);
+
+    return { message: 'Favorilerden Ã§Ä±karÄ±ldÄ±' };
+  }
+
+  async getFavorites(userId: number) {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      relations: ['favoriteBooks']
+    });
+
+    return user?.favoriteBooks || [];
+  }
+}
+================= FILE: user.entity.ts =================
+
+import { Column, Entity, PrimaryGeneratedColumn, OneToMany, ManyToMany, JoinTable } from 'typeorm';
+import { Loan } from '../loans/loan.entity';
+import { Book } from '../books/book.entity';
+
+@Entity({ name: 'users' })
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ unique: true })
+  username: string;
+
+  @Column()
+  password: string;
+
+  @Column({ default: 'member' })
+  role: string;
+
+  @Column()
+  name: string;
+
+  @OneToMany(() => Loan, (loan) => loan.user)
+  loans: Loan[];
+
+  @ManyToMany(() => Book)
+  @JoinTable({ name: 'user_favorites' })
+  favoriteBooks: Book[];
+}
+================= FILE: book.entity.ts =================
+
+import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, OneToMany } from 'typeorm';
+import { Category } from '../categories/category.entity';
+import { Loan } from '../loans/loan.entity';
+
+@Entity('books')
+export class Book {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  title: string;
+
+  @Column()
+  author: string;
+
+
+  @ManyToOne(() => Category, (category) => category.books, { eager: true, onDelete: 'SET NULL' })
+  category: Category;
+
+  @OneToMany(() => Loan, (loan) => loan.book)
+  loans: Loan[];
+}
+================= FILE: books.controller.ts =================
+
+import { Controller, Get, Post, Body, Param, Delete } from '@nestjs/common';
+import { BooksService } from './books.service';
+
+@Controller('books')
+export class BooksController {
+  constructor(private booksService: BooksService) {}
+
+  @Get()
+  getAll() {
+    return this.booksService.getAllBooks();
+  }
+
+  @Get(':id')
+  getOne(@Param('id') id: string) {
+    return this.booksService.getBookById(+id);
+  }
+
+  @Post()
+  create(@Body() body: any) {
+    return this.booksService.createBook(body);
+  }
+
+  @Delete(':id')
+  delete(@Param('id') id: string) {
+    return this.booksService.deleteBook(+id);
+  }
+}
+================= FILE: books.module.ts =================
+
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Book } from './book.entity';
+import { BooksController } from './books.controller';
+import { BooksService } from './books.service';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Book])],
+  controllers: [BooksController],
+  providers: [BooksService],
+})
+export class BooksModule {}
+================= FILE: books.service.ts =================
+
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Book } from './book.entity';
+
+@Injectable()
+export class BooksService {
+  constructor(
+    @InjectRepository(Book) private bookRepo: Repository<Book>,
+  ) {}
+
+  async getAllBooks() {
+    return this.bookRepo.find({
+      order: { id: 'DESC' },
+      relations: ['loans', 'category'],
+    });
+  }
+
+  async createBook(body: any) {
+    const newBook = this.bookRepo.create({
+      title: body.title,
+      author: body.author,
+      category: body.category
+    });
+
+    return this.bookRepo.save(newBook);
+  }
+
+  async deleteBook(id: number) {
+    const result = await this.bookRepo.delete(id);
+    if (result.affected === 0) {
+      throw new NotFoundException(`ID'si ${id} olan kitap bulunamadÄ±.`);
+    }
+    return { deleted: true };
+  }
+  
+  async getBookById(id: number) {
+     const book = await this.bookRepo.findOne({ 
+        where: { id },
+        relations: ['loans', 'category'] 
+     });
+     if (!book) throw new NotFoundException('Kitap bulunamadÄ±');
+     return book;
+  }
+}
+================= FILE: create-book.dto.ts =================
+
+import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+
+export class CreateBookDto {
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsNotEmpty()
+  author: string;
+
+  @IsNumber()
+  isbn: number;
+
+  @IsNumber()
+  pageCount: number;
+
+  @IsNumber()
+  categoryId: number;
+}
+================= FILE: categories.controller.ts =================
+
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { CategoriesService } from './categories.service';
+import { CreateCategoryDto } from './create-category.dto';
+
+@Controller('categories')
+export class CategoriesController {
+  constructor(private readonly categoriesService: CategoriesService) {}
+
+  @Get()
+  findAll() {
+    return this.categoriesService.findAll();
+  }
+
+  @Post()
+  create(@Body() body: CreateCategoryDto) {
+    return this.categoriesService.create(body);
+  }
+
+  @Delete(':id')
+  delete(@Param('id') id: string) {
+    return this.categoriesService.delete(+id);
+  }
+}
+================= FILE: categories.module.ts =================
+
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { CategoriesController } from './categories.controller';
+import { CategoriesService } from './categories.service';
+import { Category } from './category.entity';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Category])],
+  controllers: [CategoriesController],
+  providers: [CategoriesService],
+})
+export class CategoriesModule {}
+================= FILE: categories.service.ts =================
+
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Category } from './category.entity';
+import { CreateCategoryDto } from './create-category.dto';
+
+@Injectable()
+export class CategoriesService {
+  constructor(
+    @InjectRepository(Category)
+    private categoryRepo: Repository<Category>,
+  ) {}
+
+  findAll() {
+    return this.categoryRepo.find();
+  }
+
+  create(data: CreateCategoryDto) {
+    const category = this.categoryRepo.create(data);
+    return this.categoryRepo.save(category);
+  }
+
+  delete(id: number) {
+    return this.categoryRepo.delete(id);
+  }
+}
+================= FILE: category.entity.ts =================
+
+import { Column, Entity, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { Book } from '../books/book.entity';
+
+@Entity({ name: 'categories' })
+export class Category {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  name: string;
+
+  @OneToMany(() => Book, (book) => book.category)
+  books: Book[];
+}
+================= FILE: create-category.dto.ts =================
+
+import { IsString, IsNotEmpty } from 'class-validator';
+
+export class CreateCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+================= FILE: loan.entity.ts =================
+
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn } from 'typeorm';
+import { User } from '../auth/user.entity';
+import { Book } from '../books/book.entity';
+
+@Entity('loans')
+export class Loan {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @ManyToOne(() => Book, (book) => book.loans, { eager: true })
+  book: Book;
+
+  @ManyToOne(() => User, (user) => user.loans, { eager: true })
+  user: User;
+
+  @CreateDateColumn()
+  borrowDate: Date;
+
+  @Column({ nullable: true })
+  returnDate: Date;
+}
+================= FILE: loans.controller.ts =================
+
+import { Controller, Get, Post, Param, UseGuards, Request, Put } from '@nestjs/common';
+import { LoansService } from './loans.service';
+import { AuthGuard } from '@nestjs/passport';
+
+@Controller('loans')
+export class LoansController {
+  constructor(private loansService: LoansService) {}
+
+  @Get()
+  getAll() {
+    return this.loansService.getAllLoans();
+  }
+
+  @Get('my-loans')
+  getMyLoans(@Request() req) {
+    return []; 
+  }
+
+  @Post('borrow/:bookId')
+  borrow(@Param('bookId') bookId: string, @Request() req) {
+    return this.loansService.borrowBook(parseInt(bookId), req.body.user); 
+  }
+
+  @Put('return/:bookId')
+  returnBook(@Param('bookId') bookId: string) {
+    return this.loansService.returnBook(parseInt(bookId));
+  }
+}
+================= FILE: loans.module.ts =================
+
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { Loan } from './loan.entity';
+import { LoansService } from './loans.service';
+import { LoansController } from './loans.controller';
+import { Book } from '../books/book.entity';
+import { User } from '../auth/user.entity';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Loan, Book, User])],
+  controllers: [LoansController],
+  providers: [LoansService],
+})
+export class LoansModule {}
+================= FILE: loans.service.ts =================
+
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, IsNull } from 'typeorm';
+import { Loan } from './loan.entity';
+import { Book } from '../books/book.entity';
+import { User } from '../auth/user.entity';
+
+@Injectable()
+export class LoansService {
+  constructor(
+    @InjectRepository(Loan) private loanRepo: Repository<Loan>,
+    @InjectRepository(Book) private bookRepo: Repository<Book>,
+  ) {}
+
+  async getAllLoans() {
+    return this.loanRepo.find({ order: { borrowDate: 'DESC' } });
+  }
+
+  async getUserLoans(userId: number) {
+    return this.loanRepo.find({
+      where: { user: { id: userId } },
+      order: { borrowDate: 'DESC' },
+    });
+  }
+
+  async borrowBook(bookId: number, user: User) {
+    const book = await this.bookRepo.findOne({ where: { id: bookId } });
+    if (!book) throw new NotFoundException('Kitap bulunamadÄ±.');
+
+    const activeLoan = await this.loanRepo.findOne({
+      where: { book: { id: bookId }, returnDate: IsNull() },
+    });
+
+    if (activeLoan) {
+      throw new BadRequestException('Bu kitap ÅŸu an baÅŸkasÄ±nda.');
+    }
+
+    const userActiveLoansCount = await this.loanRepo.count({
+      where: { 
+        user: { id: user.id }, 
+        returnDate: IsNull() 
+      }
+    });
+
+    if (userActiveLoansCount >= 1) {
+      throw new BadRequestException('AynÄ± anda en fazla 1 kitap alabilirsin! Ã–nce elindekini iade et.');
+    }
+
+    const newLoan = this.loanRepo.create({
+      book,
+      user,
+    });
+
+    return this.loanRepo.save(newLoan);
+  }
+
+  async returnBook(bookId: number) {
+    const activeLoan = await this.loanRepo.findOne({
+      where: { book: { id: bookId }, returnDate: IsNull() },
+    });
+
+    if (!activeLoan) {
+      throw new BadRequestException('Bu kitap zaten iade edilmiÅŸ.');
+    }
+
+    activeLoan.returnDate = new Date();
+    return this.loanRepo.save(activeLoan);
+  }
+}
+================= FILE: stats.controller.ts =================
+
+import { Controller, Get } from '@nestjs/common';
+import { StatsService } from './stats.service';
+
+@Controller('stats')
+export class StatsController {
+  constructor(private statsService: StatsService) {}
+
+  @Get()
+  getStats() {
+    return this.statsService.getDashboardStats();
+  }
+}
+================= FILE: stats.module.ts =================
+
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { StatsController } from './stats.controller';
+import { StatsService } from './stats.service';
+import { Book } from '../books/book.entity';
+import { User } from '../auth/user.entity';
+import { Category } from '../categories/category.entity';
+import { Loan } from '../loans/loan.entity';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Book, User, Category, Loan])],
+  controllers: [StatsController],
+  providers: [StatsService],
+})
+export class StatsModule {}
+================= FILE: stats.service.ts =================
+
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, IsNull } from 'typeorm';
+import { Book } from '../books/book.entity';
+import { User } from '../auth/user.entity';
+import { Category } from '../categories/category.entity';
+import { Loan } from '../loans/loan.entity';
+
+@Injectable()
+export class StatsService {
+  constructor(
+    @InjectRepository(Book) private bookRepo: Repository<Book>,
+    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(Category) private categoryRepo: Repository<Category>,
+    @InjectRepository(Loan) private loanRepo: Repository<Loan>,
+  ) {}
+
+  async getDashboardStats() {
+    const totalBooks = await this.bookRepo.count();
+    const totalUsers = await this.userRepo.count();
+    const totalCategories = await this.categoryRepo.count();
+    
+    const activeLoans = await this.loanRepo.count({
+      where: { returnDate: IsNull() }
+    });
+
+    return {
+      totalBooks,
+      totalUsers,
+      totalCategories,
+      activeLoans
+    };
+  }
+}
+================= FILE: app.controller.spec.ts =================
+
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+describe('AppController', () => {
+  let appController: AppController;
+
+  beforeEach(async () => {
+    const app: TestingModule = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile();
+
+    appController = app.get<AppController>(AppController);
+  });
+
+  describe('root', () => {
+    it('should return "Hello World!"', () => {
+      expect(appController.getHello()).toBe('Hello World!');
+    });
+  });
+});
+================= FILE: app.controller.ts =================
+
+import { Controller, Get } from '@nestjs/common';
+import { AppService } from './app.service';
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello();
+  }
+}
+================= FILE: app.module.ts =================
+
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
+import { CategoriesModule } from './categories/categories.module';
+import { BooksModule } from './books/books.module';
+import { LoansModule } from './loans/loans.module';
+import { StatsModule } from './stats/stats.module';
+@Module({
+  imports: [
+    TypeOrmModule.forRoot({
+      type: 'sqlite',
+      database: 'library_db.sqlite',
+      entities: [__dirname + '/**/*.entity{.ts,.js}'],
+      synchronize: true,
+    }),
+    AuthModule,
+    CategoriesModule,
+    AuthModule,
+    CategoriesModule,
+    BooksModule,
+    LoansModule,
+    StatsModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+================= FILE: app.service.ts =================
+
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class AppService {
+  getHello(): string {
+    return 'Hello World!';
+  }
+}
+================= FILE: main.ts =================
+
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  
+  app.enableCors();
+
+  app.useGlobalPipes(new ValidationPipe());
+
+  await app.listen(3000);
+}
+bootstrap();
+================= FILE: GuestRoute.tsx =================
+
+import { Navigate, Outlet } from "react-router-dom";
+import { useLoggedInUsersContext } from "./LoggedInUserContext";
+
+export default function GuestRoute() {
+  const { loggedInUser } = useLoggedInUsersContext();
+
+  if (loggedInUser) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <Outlet />;
+}
+================= FILE: LoggedInUserContext.tsx =================
+
+import { createContext, useContext, useState, type Dispatch, type ReactNode } from "react";
+import Cookies from "universal-cookie";
+import { setToken } from "../../helper/api";
+
+export type LoggedInUser = {
+  id: number;
+  username: string;
+  role: string;
+  access_token: string;
+};
+
+export type LoggedInUserContextType = {
+  loggedInUser: LoggedInUser | null;
+  setLoggedInUser: Dispatch<React.SetStateAction<LoggedInUser | null>>;
+};
+
+const LoggedInUserContext = createContext<LoggedInUserContextType | null>(null);
+
+export const LoggedInUserContextProvider = ({ children }: { children: ReactNode }) => {
+  const cookies = new Cookies();
+  let initialUser: LoggedInUser | null = null;
+
+  const storedUser = cookies.get("loggedInUser");
+  if (storedUser) {
+    initialUser = storedUser;
+    setToken(initialUser!.access_token);
+  }
+
+  const [loggedInUser, setLoggedInUser] = useState<LoggedInUser | null>(initialUser);
+
+  return (
+    <LoggedInUserContext.Provider value={{ loggedInUser, setLoggedInUser }}>
+      {children}
+    </LoggedInUserContext.Provider>
+  );
+};
+
+export function useLoggedInUsersContext() {
+  const context = useContext(LoggedInUserContext);
+  if (!context) throw Error("Context bulunamadÄ±!");
+  return context;
+}
+================= FILE: Login.tsx =================
+
+import { useState } from "react";
+import { api, setToken } from "../../helper/api";
+import Cookies from "universal-cookie";
+import { useLoggedInUsersContext } from "./LoggedInUserContext";
+import { toast } from "sonner";
+import { useNavigate, Link } from "react-router-dom";
+import { HiUser, HiLockClosed, HiArrowRight, HiBookOpen } from "react-icons/hi";
+
+export default function Login() {
+  const cookies = new Cookies();
+  const { setLoggedInUser } = useLoggedInUsersContext();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await api.post("auth/login", { username, password });
+      
+      const userData = res.data;
+      const userToStore = {
+        ...userData.user,
+        access_token: userData.access_token
+      };
+
+      cookies.set("loggedInUser", userToStore, { path: "/" });
+      setToken(userToStore.access_token);
+      setLoggedInUser(userToStore);
+
+      toast.success(`HoÅŸ geldin, ${userToStore.username}! ğŸ‘‹`);
+      navigate("/"); 
+    } catch (error: any) {
+      console.error(error);
+      toast.error("GiriÅŸ baÅŸarÄ±sÄ±z! Bilgilerini kontrol et.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 relative overflow-hidden">
+      
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
+          <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+          <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-blue-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+          <div className="absolute bottom-[-20%] left-[20%] w-96 h-96 bg-pink-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
+      </div>
+
+      <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md z-10 border border-gray-100 relative">
+        
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-purple-600 shadow-lg mb-6 transform rotate-3">
+             <HiBookOpen className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">Tekrar HoÅŸ Geldiniz</h2>
+          <p className="text-gray-500 mt-2 text-sm">KÃ¼tÃ¼phane yÃ¶netim paneline eriÅŸmek iÃ§in giriÅŸ yapÄ±n.</p>
+        </div>
+
+        <form onSubmit={handleLogin} className="space-y-6">
+          
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <HiUser className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+            </div>
+            <input
+              type="text"
+              required
+              className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all outline-none placeholder-gray-400"
+              placeholder="KullanÄ±cÄ± AdÄ±"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
+
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <HiLockClosed className="h-5 w-5 text-gray-400 group-focus-within:text-blue-600 transition-colors" />
+            </div>
+            <input
+              type="password"
+              required
+              className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent focus:bg-white transition-all outline-none placeholder-gray-400"
+              placeholder="Åifre"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex items-center justify-center py-4 px-4 rounded-xl text-sm font-bold text-white bg-gray-900 hover:bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed group"
+          >
+            {loading ? (
+              "GiriÅŸ YapÄ±lÄ±yor..."
+            ) : (
+              <>
+                GiriÅŸ Yap
+                <HiArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </>
+            )}
+          </button>
+
+          <div className="text-center mt-6">
+            <p className="text-sm text-gray-600">
+              HenÃ¼z bir hesabÄ±n yok mu?{" "}
+              <Link to="/register" className="font-semibold text-blue-600 hover:text-blue-500 transition-colors">
+                KayÄ±t Ol
+              </Link>
+            </p>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+================= FILE: ProtectedRoute.tsx =================
+
+import { Navigate, Outlet } from "react-router-dom";
+import { useLoggedInUsersContext } from "./LoggedInUserContext";
+
+export default function ProtectedRoute() {
+  const { loggedInUser } = useLoggedInUsersContext();
+
+  if (!loggedInUser) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Outlet />;
+}
+================= FILE: Register.tsx =================
+
+import { useState, useRef, useEffect } from "react";
+import { api } from "../../helper/api";
+import { toast } from "sonner";
+import { useNavigate, Link } from "react-router-dom";
+import { HiUser, HiLockClosed, HiArrowRight, HiBookOpen, HiIdentification, HiAcademicCap, HiChevronDown } from "react-icons/hi";
+
+export default function Register() {
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("student");
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const roles = [
+    { value: "student", label: "Ã–ÄŸrenci" },
+    { value: "admin", label: "Personel / YÃ¶netici" },
+  ];
+
+  const selectedRoleLabel = roles.find((r) => r.value === role)?.label;
+
+  const toggleDropdown = () => setIsDropdownOpen(!isDropdownOpen);
+
+  const handleRoleSelect = (value: string) => {
+    setRole(value);
+    setIsDropdownOpen(false);
+  };
+
+  const handleClickOutside = (event: MouseEvent) => {
+    if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      setIsDropdownOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await api.post("auth/register", { name, username, password, role });
+      toast.success("KayÄ±t BaÅŸarÄ±lÄ±! Åimdi giriÅŸ yapabilirsin. ğŸ‰");
+      navigate("/login");
+    } catch (error) {
+      console.error(error);
+      toast.error("KayÄ±t baÅŸarÄ±sÄ±z! Bilgileri kontrol et.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
+        <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-purple-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+        <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 bg-teal-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+        <div className="absolute top-[20%] right-[20%] w-96 h-96 bg-blue-300 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
+      </div>
+
+      <div className="bg-white p-10 rounded-3xl shadow-2xl w-full max-w-md z-10 border border-gray-100 relative">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-teal-500 to-blue-600 shadow-lg mb-6 transform -rotate-3 hover:rotate-0 transition-transform duration-300">
+            <HiBookOpen className="w-8 h-8 text-white" />
+          </div>
+          <h2 className="text-3xl font-extrabold text-gray-900 tracking-tight">AramÄ±za KatÄ±l</h2>
+          <p className="text-gray-500 mt-2 text-sm">KÃ¼tÃ¼phane dÃ¼nyasÄ±na adÄ±m atmak iÃ§in hesabÄ±nÄ± oluÅŸtur.</p>
+        </div>
+
+        <form onSubmit={handleRegister} className="space-y-5">
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <HiIdentification className="h-5 w-5 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
+            </div>
+            <input
+              type="text"
+              required
+              className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent focus:bg-white transition-all outline-none placeholder-gray-400"
+              placeholder="AdÄ±nÄ±z SoyadÄ±nÄ±z"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <HiUser className="h-5 w-5 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
+            </div>
+            <input
+              type="text"
+              required
+              className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent focus:bg-white transition-all outline-none placeholder-gray-400"
+              placeholder="KullanÄ±cÄ± AdÄ± SeÃ§in"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
+
+          <div className="relative group" ref={dropdownRef}>
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none z-10">
+              <HiAcademicCap className={`h-5 w-5 transition-colors ${isDropdownOpen ? 'text-teal-600' : 'text-gray-400'}`} />
+            </div>
+            <button
+              type="button"
+              onClick={toggleDropdown}
+              className={`w-full pl-11 pr-4 py-4 bg-gray-50 border text-left text-sm rounded-xl focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all flex items-center justify-between ${
+                isDropdownOpen ? 'border-teal-500 bg-white ring-2 ring-teal-500' : 'border-gray-200 text-gray-900'
+              }`}
+            >
+              <span className={selectedRoleLabel ? 'text-gray-900' : 'text-gray-400'}>
+                {selectedRoleLabel || 'Rol SeÃ§in'}
+              </span>
+              <HiChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isDropdownOpen ? 'transform rotate-180' : ''}`} />
+            </button>
+            
+            {isDropdownOpen && (
+              <ul className="absolute z-50 mt-2 w-full bg-white border border-gray-200 rounded-xl shadow-lg max-h-60 overflow-auto focus:outline-none py-2">
+                {roles.map((roleOption) => (
+                  <li
+                    key={roleOption.value}
+                    onClick={() => handleRoleSelect(roleOption.value)}
+                    className={`cursor-pointer select-none relative py-3 pl-11 pr-4 text-sm hover:bg-teal-50 hover:text-teal-700 transition-colors ${
+                      role === roleOption.value ? 'font-semibold text-teal-700 bg-teal-50/50' : 'text-gray-900'
+                    }`}
+                  >
+                    {roleOption.label}
+                    {role === roleOption.value && (
+                      <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-teal-600">
+                        <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <HiLockClosed className="h-5 w-5 text-gray-400 group-focus-within:text-teal-600 transition-colors" />
+            </div>
+            <input
+              type="password"
+              required
+              className="w-full pl-11 pr-4 py-4 bg-gray-50 border border-gray-200 text-gray-900 text-sm rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent focus:bg-white transition-all outline-none placeholder-gray-400"
+              placeholder="GÃ¼Ã§lÃ¼ Bir Åifre"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex items-center justify-center py-4 px-4 rounded-xl text-sm font-bold text-white bg-gray-900 hover:bg-black focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed group mt-2"
+          >
+            {loading ? (
+              "Hesap OluÅŸturuluyor..."
+            ) : (
+              <>
+                KayÄ±t Ol
+                <HiArrowRight className="ml-2 w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              </>
+            )}
+          </button>
+
+          <div className="text-center mt-6">
+            <p className="text-sm text-gray-600">
+              Zaten hesabÄ±n var mÄ±?{" "}
+              <Link to="/login" className="font-semibold text-teal-600 hover:text-teal-500 transition-colors">
+                GiriÅŸ Yap
+              </Link>
+            </p>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+================= FILE: UserList.tsx =================
+
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { HiTrash, HiUserGroup, HiBadgeCheck, HiAcademicCap } from "react-icons/hi";
+import { api } from "../../helper/api";
+import { useLoggedInUsersContext } from "./LoggedInUserContext";
+import { useNavigate } from "react-router-dom";
+
+type User = {
+  id: number;
+  username: string;
+  name: string;
+  role: string;
+};
+
+export default function UserList() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  const { loggedInUser } = useLoggedInUsersContext();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (loggedInUser?.role !== "admin") {
+      toast.error("Bu sayfaya giriÅŸ yetkiniz yok! â›”");
+      navigate("/");
+      return;
+    }
+
+    fetchUsers();
+  }, [loggedInUser, navigate]);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await api.get("auth/users");
+      setUsers(res.data);
+    } catch (error) {
+      toast.error("KullanÄ±cÄ± listesi alÄ±namadÄ±.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Bu kullanÄ±cÄ±yÄ± kalÄ±cÄ± olarak silmek istiyor musun?")) return;
+
+    try {
+      await api.delete(`auth/users/${id}`);
+      toast.success("KullanÄ±cÄ± silindi.");
+      setUsers(users.filter((user) => user.id !== id));
+    } catch (error) {
+      toast.error("Silme iÅŸlemi baÅŸarÄ±sÄ±z.");
+    }
+  };
+
+  return (
+    <div className="max-w-5xl mx-auto px-8 pt-6 pb-12 animate-fade-in">
+      
+      <div className="flex items-center justify-between mb-8">
+        <div>
+           <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">KullanÄ±cÄ± YÃ¶netimi</h1>
+           <p className="text-gray-500 mt-2">Sistemdeki kayÄ±tlÄ± Ã¼yeleri buradan yÃ¶netebilirsin.</p>
+        </div>
+        <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
+           <HiUserGroup className="w-8 h-8" />
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50/50 border-b border-gray-200 text-xs uppercase text-gray-400 font-bold tracking-wider">
+              <th className="px-6 py-4">KullanÄ±cÄ± AdÄ±</th>
+              <th className="px-6 py-4">Ad Soyad</th>
+              <th className="px-6 py-4">Rol</th>
+              <th className="px-6 py-4 text-right">Ä°ÅŸlem</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {loading ? (
+              <tr><td colSpan={4} className="py-8 text-center text-gray-500">YÃ¼kleniyor...</td></tr>
+            ) : users.length === 0 ? (
+              <tr><td colSpan={4} className="py-8 text-center text-gray-500">HiÃ§ kullanÄ±cÄ± yok.</td></tr>
+            ) : (
+              users.map((user) => (
+                <tr key={user.id} className="group hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 font-medium text-gray-900">
+                    {user.username}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    {user.name}
+                  </td>
+                  <td className="px-6 py-4">
+                    {user.role === 'admin' ? (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                         <HiBadgeCheck /> Personel
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-700 border border-teal-200">
+                         <HiAcademicCap /> Ã–ÄŸrenci
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <button 
+                      onClick={() => handleDelete(user.id)}
+                      className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg transition-colors"
+                      title="KullanÄ±cÄ±yÄ± Sil"
+                    >
+                      <HiTrash className="w-5 h-5" />
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+================= FILE: BookList.tsx =================
+
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { HiTrash, HiPlus, HiBookOpen, HiOutlineBookOpen, HiCheck, HiX, HiReply, HiBan, HiSearch, HiStar, HiOutlineStar } from "react-icons/hi";
+import { api } from "../../helper/api";
+import { useLoggedInUsersContext } from "../auth/LoggedInUserContext";
+
+type Book = {
+  id: number;
+  title: string;
+  author: string;
+  category: { id: number; name: string } | null;
+  loans: { returnDate: string | null; user: { name: string; username: string } }[]; 
+};
+
+type Category = {
+  id: number;
+  name: string;
+};
+
+export default function BookList() {
+  const [books, setBooks] = useState<Book[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [favorites, setFavorites] = useState<number[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [title, setTitle] = useState("");
+  const [author, setAuthor] = useState("");
+  const [categoryId, setCategoryId] = useState<number | "">("");
+
+  const { loggedInUser } = useLoggedInUsersContext();
+  const isAdmin = loggedInUser?.role === 'admin';
+
+  useEffect(() => {
+    fetchBooks();
+    fetchCategories();
+    
+    if (loggedInUser) {
+      fetchFavorites();
+    }
+  }, [loggedInUser]);
+
+  const fetchBooks = async () => {
+    try {
+      const res = await api.get("books");
+      setBooks(res.data);
+    } catch (error) {
+      toast.error("Kitaplar yÃ¼klenemedi.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const res = await api.get("categories");
+      setCategories(res.data);
+    } catch (error) {}
+  };
+
+  const fetchFavorites = async () => {
+    try {
+      const res = await api.get(`auth/favorites/${loggedInUser?.id}`);
+      setFavorites(res.data.map((b: any) => b.id));
+    } catch (error) {}
+  };
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!categoryId) {
+      toast.warning("LÃ¼tfen bir kategori seÃ§in.");
+      return;
+    }
+
+    try {
+      await api.post("books", {
+        title,
+        author,
+        category: { id: categoryId }
+      });
+      toast.success("Kitap eklendi!");
+      setTitle("");
+      setAuthor("");
+      setCategoryId("");
+      fetchBooks();
+    } catch (error) {
+      toast.error("Hata oluÅŸtu.");
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Silmek istediÄŸine emin misin?")) return;
+    try {
+      await api.delete(`books/${id}`);
+      toast.success("Kitap silindi.");
+      setBooks(books.filter((b) => b.id !== id));
+    } catch (error) {
+      toast.error("Silinemedi.");
+    }
+  };
+
+  const handleBorrow = async (bookId: number) => {
+    if (!confirm("Bu kitabÄ± Ã¶dÃ¼nÃ§ almak istiyor musun?")) return;
+    try {
+      await api.post(`loans/borrow/${bookId}`, { user: loggedInUser });
+      toast.success("Kitap Ã¶dÃ¼nÃ§ alÄ±ndÄ±.");
+      fetchBooks();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Ä°ÅŸlem baÅŸarÄ±sÄ±z.");
+    }
+  };
+
+  const handleReturn = async (bookId: number) => {
+    if (!confirm("KitabÄ± iade ediyor musun?")) return;
+    try {
+      await api.put(`loans/return/${bookId}`);
+      toast.success("Kitap iade edildi.");
+      fetchBooks();
+    } catch (error: any) {
+      toast.error("Ä°ade iÅŸlemi baÅŸarÄ±sÄ±z.");
+    }
+  };
+
+  const handleAddFavorite = async (bookId: number) => {
+    try {
+      await api.post(`auth/favorites/${bookId}`, { userId: loggedInUser?.id });
+      setFavorites([...favorites, bookId]);
+      toast.success("Favorilere eklendi! â­");
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Hata oluÅŸtu");
+    }
+  };
+
+  const handleRemoveFavorite = async (bookId: number) => {
+    try {
+      await api.delete(`auth/favorites/${bookId}`, { 
+        data: { userId: loggedInUser?.id } 
+      });
+      setFavorites(favorites.filter(id => id !== bookId));
+      toast.success("Favorilerden Ã§Ä±karÄ±ldÄ±");
+    } catch (error) {
+      toast.error("Hata oluÅŸtu");
+    }
+  };
+
+  const myActiveLoan = books.find(b => 
+    b.loans?.some(loan => loan.returnDate === null && loan.user.username === loggedInUser?.username)
+  );
+  const hasLimitReached = !!myActiveLoan;
+
+  const filteredBooks = books.filter((book) => {
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      book.title.toLowerCase().includes(searchLower) || 
+      book.author.toLowerCase().includes(searchLower) ||
+      (book.category?.name?.toLowerCase().includes(searchLower) ?? false)
+    );
+  });
+
+  return (
+    <div className="max-w-6xl mx-auto px-8 pt-6 pb-12 animate-fade-in">
+      
+      <div className="flex items-center justify-between mb-10">
+        <div>
+           <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">KÃ¼tÃ¼phane ArÅŸivi</h1>
+           <p className="text-gray-500 mt-2">KitaplarÄ± incele, Ã¶dÃ¼nÃ§ al veya iade et.</p>
+        </div>
+        <div className="w-14 h-14 bg-indigo-100 rounded-2xl flex items-center justify-center text-indigo-600 shadow-sm">
+           <HiBookOpen className="w-8 h-8" />
+        </div>
+      </div>
+
+      {isAdmin && (
+        <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mb-10">
+          <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+            <HiPlus className="text-indigo-600" /> Yeni Eser Ekle
+          </h2>
+          <form onSubmit={handleAdd} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400"><HiOutlineBookOpen /></div>
+                <input type="text" placeholder="Kitap AdÄ±" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full pl-10 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500" required />
+              </div>
+              
+              <input type="text" placeholder="Yazar" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500" required />
+              
+              <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-indigo-500 text-gray-600">
+                <option value="">Kategori SeÃ§iniz</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+
+              <button type="submit" className="bg-gray-900 text-white font-bold py-3 rounded-xl hover:bg-black transition-transform hover:-translate-y-0.5 shadow-lg flex items-center justify-center gap-2">
+                <HiPlus className="w-5 h-5" /> Kaydet
+              </button>
+          </form>
+        </div>
+      )}
+
+      <div className="mb-6 relative">
+        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+          <HiSearch className="text-gray-400 w-5 h-5" />
+        </div>
+        <input 
+          type="text" 
+          placeholder="Kitap, yazar veya kategori ara..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow"
+        />
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50/50 border-b border-gray-200 text-xs uppercase text-gray-400 font-bold tracking-wider">
+              <th className="px-6 py-4">Durum</th>
+              <th className="px-6 py-4">Kitap Bilgisi</th>
+              <th className="px-6 py-4">Yazar</th>
+              <th className="px-6 py-4">Kategori</th>
+              <th className="px-6 py-4 text-right">Ä°ÅŸlem</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {loading ? (
+              <tr><td colSpan={5} className="py-8 text-center text-gray-500">YÃ¼kleniyor...</td></tr>
+            ) : filteredBooks.length === 0 ? (
+              <tr><td colSpan={5} className="py-8 text-center text-gray-500">
+                {searchTerm ? "AradÄ±ÄŸÄ±nÄ±z kriterde kitap bulunamadÄ±." : "KÃ¼tÃ¼phanede henÃ¼z kitap yok."}
+              </td></tr>
+            ) : (
+              filteredBooks.map((book) => {
+                const activeLoan = book.loans?.find(loan => loan.returnDate === null);
+                const isAvailable = !activeLoan;
+                const isMyBook = activeLoan?.user?.username === loggedInUser?.username;
+                const isFavorite = favorites.includes(book.id);
+
+                return (
+                  <tr key={book.id} className="group hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4">
+                      {isAvailable ? (
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700 border border-green-200">
+                          <HiCheck /> MÃ¼sait
+                        </span>
+                      ) : (
+                        <div className="flex flex-col">
+                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700 border border-red-200 w-fit">
+                             <HiX /> Dolu
+                           </span>
+                           <span className="text-xs text-red-400 mt-1 pl-1 font-medium">
+                             {activeLoan?.user?.name} okuyor
+                           </span>
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="px-6 py-4 font-bold text-gray-800">{book.title}</td>
+                    <td className="px-6 py-4 text-gray-600">{book.author}</td>
+                    <td className="px-6 py-4">
+                        {book.category ? (
+                          <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-md text-xs font-medium border border-indigo-100">
+                            {book.category.name}
+                          </span>
+                        ) : <span className="text-gray-400 text-xs">-</span>}
+                    </td>
+
+                    <td className="px-6 py-4 text-right flex items-center justify-end gap-2">
+                      
+                      {isFavorite ? (
+                        <button 
+                          onClick={() => handleRemoveFavorite(book.id)}
+                          className="px-3 py-2 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-lg hover:bg-yellow-200 transition-colors flex items-center gap-1"
+                          title="Favorilerden Ã‡Ä±kar"
+                        >
+                          <HiStar className="w-4 h-4" /> Favorilerimde
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => handleAddFavorite(book.id)}
+                          className="px-3 py-2 bg-gray-100 text-gray-600 text-xs font-bold rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-1"
+                          title="Favorilere Ekle"
+                        >
+                          <HiOutlineStar className="w-4 h-4" /> Favorile
+                        </button>
+                      )}
+
+                      {isAvailable && (
+                        hasLimitReached ? (
+                            <button disabled className="px-4 py-2 bg-gray-100 text-gray-400 text-xs font-bold rounded-lg cursor-not-allowed flex items-center gap-1">
+                                <HiBan /> Limit Dolu
+                            </button>
+                        ) : (
+                            <button 
+                              onClick={() => handleBorrow(book.id)}
+                              className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-sm"
+                            >
+                              Ã–dÃ¼nÃ§ Al
+                            </button>
+                        )
+                      )}
+
+                      {!isAvailable && (isAdmin || isMyBook) && (
+                        <button 
+                          onClick={() => handleReturn(book.id)}
+                          className={`px-4 py-2 text-white text-xs font-bold rounded-lg transition-colors shadow-sm flex items-center gap-1 ${
+                            isMyBook ? "bg-green-600 hover:bg-green-700" : "bg-orange-500 hover:bg-orange-600"
+                          }`}
+                        >
+                          <HiReply /> {isMyBook ? "Ä°ade Et" : "Teslim Al"}
+                        </button>
+                      )}
+
+                      {isAdmin && (
+                        <button 
+                          onClick={() => handleDelete(book.id)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Sil"
+                        >
+                          <HiTrash className="w-5 h-5" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+================= FILE: CategoryList.tsx =================
+
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+import { HiTrash, HiPlus, HiCollection, HiOutlineCollection } from "react-icons/hi";
+import { api } from "../../helper/api";
+import { useLoggedInUsersContext } from "../auth/LoggedInUserContext";
+import { useNavigate } from "react-router-dom";
+
+type Category = {
+  id: number;
+  name: string;
+};
+
+export default function CategoryList() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const { loggedInUser } = useLoggedInUsersContext();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // KullanÄ±cÄ± bilgisi henÃ¼z yÃ¼klenmediyse bekle
+    if (!loggedInUser) return;
+
+    // 1. Admin KorumasÄ±: Admin deÄŸilse at
+    if (loggedInUser.role !== "admin") {
+      toast.error("Bu sayfaya eriÅŸim yetkiniz yok! â›”");
+      navigate("/"); // Ana sayfaya fÄ±rlat
+      return;
+    }
+
+    // 2. Admin ise verileri Ã§ek
+    fetchCategories();
+  }, [loggedInUser, navigate]);
+
+  const fetchCategories = async () => {
+    try {
+      const res = await api.get("categories");
+      setCategories(res.data);
+    } catch (error) {
+      toast.error("Kategoriler yÃ¼klenemedi.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+
+    try {
+      await api.post("categories", { name });
+      toast.success("Kategori eklendi.");
+      setName("");
+      fetchCategories();
+    } catch (error) {
+      toast.error("Ekleme baÅŸarÄ±sÄ±z.");
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Bu kategoriyi silmek istediÄŸine emin misin?")) return;
+
+    try {
+      await api.delete(`categories/${id}`);
+      toast.success("Kategori silindi.");
+      setCategories(categories.filter((c) => c.id !== id));
+    } catch (error) {
+      toast.error("Silinemedi. Bu kategoriye ait kitaplar olabilir.");
+    }
+  };
+
+  // EÄŸer kullanÄ±cÄ± admin deÄŸilse veya yÃ¼kleniyorsa boÅŸ ekran gÃ¶ster (Sayfa iÃ§eriÄŸini gizle)
+  if (!loggedInUser || loggedInUser.role !== "admin") {
+    return null; 
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto px-8 pt-6 pb-12 animate-fade-in">
+      
+      {/* BAÅLIK */}
+      <div className="flex items-center justify-between mb-10">
+        <div>
+           <h1 className="text-4xl font-extrabold text-gray-900 tracking-tight">Kategoriler</h1>
+           <p className="text-gray-500 mt-2">KitaplarÄ±n sÄ±nÄ±flandÄ±rÄ±ldÄ±ÄŸÄ± alanlarÄ± buradan yÃ¶net.</p>
+        </div>
+        <div className="w-14 h-14 bg-orange-100 rounded-2xl flex items-center justify-center text-orange-600 shadow-sm">
+           <HiCollection className="w-8 h-8" />
+        </div>
+      </div>
+
+      {/* EKLEME FORMU */}
+      <div className="bg-white p-6 rounded-2xl shadow-lg border border-gray-100 mb-10">
+         <form onSubmit={handleAdd} className="flex gap-4">
+            <div className="relative flex-1">
+               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                  <HiOutlineCollection />
+               </div>
+               <input 
+                 type="text" 
+                 placeholder="Yeni Kategori AdÄ± (Ã–rn: Tarih, Roman...)" 
+                 value={name}
+                 onChange={(e) => setName(e.target.value)}
+                 className="w-full pl-10 pr-4 py-3 bg-gray-50 border-none rounded-xl focus:ring-2 focus:ring-orange-500 transition-all placeholder-gray-400"
+                 required
+               />
+            </div>
+            <button type="submit" className="px-6 py-3 bg-gray-900 text-white font-bold rounded-xl hover:bg-black transition-transform hover:-translate-y-0.5 flex items-center gap-2 shadow-lg">
+               <HiPlus className="w-5 h-5" /> Ekle
+            </button>
+         </form>
+      </div>
+
+      {/* LÄ°STE */}
+      <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+           <thead>
+              <tr className="bg-gray-50/50 border-b border-gray-200 text-xs uppercase text-gray-400 font-bold tracking-wider">
+                 <th className="px-6 py-4">Kategori AdÄ±</th>
+                 <th className="px-6 py-4 text-right">Ä°ÅŸlem</th>
+              </tr>
+           </thead>
+           <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                 <tr><td colSpan={2} className="py-8 text-center text-gray-500">YÃ¼kleniyor...</td></tr>
+              ) : categories.length === 0 ? (
+                 <tr><td colSpan={2} className="py-8 text-center text-gray-500">HenÃ¼z kategori yok.</td></tr>
+              ) : (
+                 categories.map((cat) => (
+                    <tr key={cat.id} className="group hover:bg-orange-50/30 transition-colors">
+                       <td className="px-6 py-4 font-bold text-gray-700">{cat.name}</td>
+                       <td className="px-6 py-4 text-right">
+                          <button onClick={() => handleDelete(cat.id)} className="text-gray-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors">
+                             <HiTrash className="w-5 h-5" />
+                          </button>
+                       </td>
+                    </tr>
+                 ))
+              )}
+           </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+================= FILE: Home.tsx =================
+
+import { useEffect, useState } from "react";
+import { HiBookOpen, HiUsers, HiCollection, HiClock, HiArrowRight } from "react-icons/hi";
+import { Link } from "react-router-dom";
+import { api } from "../../helper/api";
+import { useLoggedInUsersContext } from "../auth/LoggedInUserContext";
+
+export default function Home() {
+  const { loggedInUser } = useLoggedInUsersContext();
+  const [stats, setStats] = useState({
+    totalBooks: 0,
+    totalUsers: 0,
+    totalCategories: 0,
+    activeLoans: 0,
+  });
+
+  useEffect(() => {
+    api.get("stats")
+      .then((res) => setStats(res.data))
+      .catch(() => console.error("Error fetching stats"));
+  }, []);
+
+  const cards = [
+    { 
+      label: "Toplam Kitap", 
+      value: stats.totalBooks, 
+      icon: HiBookOpen, 
+      color: "text-blue-600", 
+      bg: "bg-blue-100",
+      link: "/books"
+    },
+    { 
+      label: "Toplam Ãœye", 
+      value: stats.totalUsers, 
+      icon: HiUsers, 
+      color: "text-green-600", 
+      bg: "bg-green-100",
+      link: loggedInUser?.role === 'admin' ? "/users" : null
+    },
+    { 
+      label: "Okunan Kitaplar", 
+      value: stats.activeLoans, 
+      icon: HiClock, 
+      color: "text-orange-600", 
+      bg: "bg-orange-100",
+      link: "/books"
+    },
+    { 
+      label: "Kategoriler", 
+      value: stats.totalCategories, 
+      icon: HiCollection, 
+      color: "text-purple-600", 
+      bg: "bg-purple-100",
+      link: loggedInUser?.role === 'admin' ? "/categories" : null
+    },
+  ];
+
+  return (
+    <div className="max-w-6xl mx-auto px-8 pt-8 pb-12 animate-fade-in">
+      
+      <div className="mb-10">
+        <h1 className="text-3xl font-extrabold text-gray-900">
+          HoÅŸ Geldin, {loggedInUser?.name}! ğŸ‘‹
+        </h1>
+        <p className="text-gray-500 mt-2 text-lg">
+          KÃ¼tÃ¼phane durumunu buradan hÄ±zlÄ±ca takip edebilirsin.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {cards.map((card, index) => (
+          <div key={index} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow relative overflow-hidden group">
+            
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-500 mb-1">{card.label}</p>
+                <h3 className="text-3xl font-extrabold text-gray-800">{card.value}</h3>
+              </div>
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${card.bg} ${card.color}`}>
+                <card.icon className="w-6 h-6" />
+              </div>
+            </div>
+
+            {card.link && (
+              <Link to={card.link} className="mt-4 flex items-center text-sm font-semibold text-gray-400 group-hover:text-indigo-600 transition-colors">
+                Ä°ncele <HiArrowRight className="ml-1" />
+              </Link>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-10 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl p-8 text-white shadow-xl flex items-center justify-between">
+         <div>
+           <h2 className="text-2xl font-bold mb-2">Yeni Kitaplar Eklemeye Ne Dersin?</h2>
+           <p className="text-indigo-100 max-w-lg">
+             KÃ¼tÃ¼phaneyi zenginleÅŸtirmek iÃ§in hemen kitap listesine git ve yeni eserler ekle.
+           </p>
+         </div>
+         <Link to="/books" className="px-6 py-3 bg-white text-indigo-600 font-bold rounded-xl shadow-lg hover:bg-gray-50 transition-colors">
+            Kitaplara Git
+         </Link>
+      </div>
+
+    </div>
+  );
+}
+================= FILE: DashboardLayout.tsx =================
+
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { HiBookOpen, HiCollection, HiHome, HiLogout, HiUsers, HiUser } from "react-icons/hi"; 
+import { useLoggedInUsersContext } from "../auth/LoggedInUserContext";
+
+export default function DashboardLayout() {
+  const { loggedInUser, setLoggedInUser } = useLoggedInUsersContext();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    setLoggedInUser(null);
+    navigate("/login");
+  };
+
+  const menuItems = [
+    { label: "Ana Sayfa", path: "/", icon: HiHome },
+    { label: "Kitaplar", path: "/books", icon: HiBookOpen },
+    { label: "Kategoriler", path: "/categories", icon: HiCollection },
+    { label: "KullanÄ±cÄ±lar", path: "/users", icon: HiUsers },
+  ];
+
+  const isAdmin = loggedInUser?.role === 'admin';
+  const roleLabel = isAdmin ? "Personel / Yonetici" : "Ogrenci";
+  const roleColor = isAdmin ? "text-indigo-600" : "text-gray-500";
+  const avatarGradient = isAdmin ? "bg-gradient-to-br from-indigo-500 to-purple-600" : "bg-gradient-to-br from-green-400 to-cyan-500";
+
+  return (
+    <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
+      
+      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col justify-between hidden md:flex shadow-xl z-10">
+        
+        <div>
+           <div className="h-20 flex items-center px-8 border-b border-gray-100">
+             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white mr-3 shadow-indigo-200 shadow-lg">
+               <HiBookOpen className="w-5 h-5" />
+             </div>
+             <h1 className="text-xl font-black tracking-tight text-gray-800">Kutuphane</h1>
+           </div>
+
+           <nav className="p-4 space-y-2 mt-4">
+             {menuItems.map((item) => {
+               const isActive = location.pathname === item.path;
+               if ((item.path === "/users" || item.path === "/categories") && !isAdmin) return null;
+
+               return (
+                 <Link
+                   key={item.path}
+                   to={item.path}
+                   className={`flex items-center px-4 py-3 rounded-xl transition-all duration-200 font-medium text-sm group ${
+                     isActive 
+                       ? "bg-indigo-50 text-indigo-700 shadow-sm translate-x-1" 
+                       : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                   }`}
+                 >
+                   <item.icon className={`w-5 h-5 mr-3 transition-colors ${isActive ? "text-indigo-600" : "text-gray-400 group-hover:text-gray-600"}`} />
+                   {item.label}
+                 </Link>
+               );
+             })}
+           </nav>
+        </div>
+
+        <div className="p-4 border-t border-gray-100">
+          <div className="flex items-center gap-3 p-3 rounded-2xl bg-gray-50 border border-gray-100 hover:border-gray-200 transition-colors">
+            
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm ${avatarGradient}`}>
+              {loggedInUser?.username?.charAt(0).toUpperCase() || <HiUser />}
+            </div>
+
+            <div className="flex-1 min-w-0">
+               <p className="text-sm font-bold text-gray-900 truncate">
+                 {loggedInUser?.username || "Kullanici"} 
+               </p>
+               <div className="flex items-center gap-1.5 mt-0.5">
+                  <p className={`text-[10px] font-bold uppercase tracking-wider ${roleColor}`}>
+                    {roleLabel}
+                  </p>
+               </div>
+            </div>
+
+            <button 
+              onClick={handleLogout}
+              className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+              title="Cikis Yap" 
+            >
+              <HiLogout className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+      </aside>
+
+      <main className="flex-1 overflow-auto relative">
+        <div className="min-h-full">
+           <Outlet />
+        </div>
+      </main>
+    </div>
+  );
+}
+================= FILE: api.ts =================
+
+import axios from "axios";
+
+export const api = axios.create({
+  baseURL: "https://kutuphane-backend-erwj.onrender.com",
+});
+
+export function setToken(token: string) {
+  api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+}
+================= FILE: App.tsx =================
+
+import { useState } from 'react'
+import reactLogo from './assets/react.svg'
+import viteLogo from '/vite.svg'
+import './App.css'
+
+function App() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <>
+      <div>
+        <a href="https://vite.dev" target="_blank">
+          <img src={viteLogo} className="logo" alt="Vite logo" />
+        </a>
+        <a href="https://react.dev" target="_blank">
+          <img src={reactLogo} className="logo react" alt="React logo" />
+        </a>
+      </div>
+      <h1>Vite + React</h1>
+      <div className="card">
+        <button onClick={() => setCount((count) => count + 1)}>
+          count is {count}
+        </button>
+        <p>
+          Edit <code>src/App.tsx</code> and save to test HMR
+        </p>
+      </div>
+      <p className="read-the-docs">
+        Click on the Vite and React logos to learn more
+      </p>
+    </>
+  )
+}
+
+export default App
+================= FILE: main.tsx =================
+
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { Toaster } from "sonner";
+
+import Register from "./components/auth/Register";
+import Login from "./components/auth/Login";
+import { LoggedInUserContextProvider } from "./components/auth/LoggedInUserContext";
+import DashboardLayout from "./components/shared/DashboardLayout";
+import CategoryList from "./components/categories/CategoryList";
+import BookList from "./components/books/BookList";
+import UserList from "./components/auth/UserList"; 
+import ProtectedRoute from "./components/auth/ProtectedRoute";
+import GuestRoute from "./components/auth/GuestRoute";
+import Home from "./components/home/Home";
+
+const router = createBrowserRouter([
+  // Protected Routes (Requires Login)
+  {
+    path: "/",
+    element: <ProtectedRoute />, 
+    children: [
+      {
+        path: "/",
+        element: <DashboardLayout />, 
+        children: [
+          {
+            path: "/", 
+            element: <Home />, 
+          },
+          {
+            path: "/categories",
+            element: <CategoryList />,
+          },
+          {
+            path: "/books",
+            element: <BookList />,
+          },
+          {
+            path: "/users",
+            element: <UserList />, 
+          },
+        ],
+      },
+    ],
+  },
+
+  {
+    element: <GuestRoute />,
+    children: [
+      { path: "/login", element: <Login /> },
+      { path: "/register", element: <Register /> },
+    ]
+  }
+]);
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <LoggedInUserContextProvider>
+      <Toaster richColors position="top-center" />
+      <RouterProvider router={router} />
+    </LoggedInUserContextProvider>
+  </StrictMode>
+);

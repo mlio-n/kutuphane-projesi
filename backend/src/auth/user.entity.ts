@@ -1,5 +1,6 @@
-import { Column, Entity, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { Column, Entity, PrimaryGeneratedColumn, OneToMany, ManyToMany, JoinTable } from 'typeorm';
 import { Loan } from '../loans/loan.entity';
+import { Book } from '../books/book.entity';
 
 @Entity({ name: 'users' })
 export class User {
@@ -20,4 +21,8 @@ export class User {
 
   @OneToMany(() => Loan, (loan) => loan.user)
   loans: Loan[];
+
+  @ManyToMany(() => Book)
+  @JoinTable({ name: 'user_favorites' })
+  favoriteBooks: Book[];
 }

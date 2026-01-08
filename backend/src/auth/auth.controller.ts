@@ -17,7 +17,6 @@ export class AuthController {
     return this.authService.login(body);
   }
 
-
   @Get('/users')
   getUsers() {
     return this.authService.getAllUsers();
@@ -26,5 +25,26 @@ export class AuthController {
   @Delete('/users/:id')
   deleteUser(@Param('id') id: string) {
     return this.authService.deleteUser(parseInt(id));
+  }
+
+  @Post('/favorites/:bookId')
+  addToFavorites(
+    @Param('bookId') bookId: string, 
+    @Body() body: { userId: number }
+  ) {
+    return this.authService.addFavorite(body.userId, parseInt(bookId));
+  }
+
+  @Delete('/favorites/:bookId')
+  removeFromFavorites(
+    @Param('bookId') bookId: string, 
+    @Body() body: { userId: number }
+  ) {
+    return this.authService.removeFavorite(body.userId, parseInt(bookId));
+  }
+
+  @Get('/favorites/:userId')
+  getFavorites(@Param('userId') userId: string) {
+    return this.authService.getFavorites(parseInt(userId));
   }
 }
