@@ -65,14 +65,6 @@ Projeyi yerel ortamınızda çalıştırmak için aşağıdaki adımları izleyi
    npm run dev
    ```
    *Uygulama arayüzüne tarayıcınız üzerinden http://localhost:5173 adresinden erişebilirsiniz.*
-
-## 🤝 Katkıda Bulunma
-
-1. Bu depoyu forklayın.
-2. Yeni bir dal (branch) oluşturun: `git checkout -b özellik/YeniÖzellik`
-3. Değişikliklerinizi commitleyin: `git commit -m 'Yeni bir özellik eklendi'`
-4. Dalınıza pushlayın: `git push origin özellik/YeniÖzellik`
-5. Bir Pull Request oluşturun.
-
+   
 ---
 *Bu proje modern web geliştirme pratikleri ve mimarileri baz alınarak geliştirilmiştir.*
